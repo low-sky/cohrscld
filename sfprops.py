@@ -7,6 +7,8 @@ import astropy.io.fits as fits
 import astropy.wcs as wcs
 import astropy.units as u
 import os, subprocess
+import cloudpca
+
 datadir = '/Users/erik/astro/cohrs/'
 outdir = '/Users/erik/astro/cohrs/RESULTS/'
 
@@ -114,4 +116,38 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog3.fits'):
             print(ir_flux,ir_lum)
             cloud['ir_flux'] = ir_flux
             cloud['ir_luminosity'] = ir_lum
+    return(cat)
+
+def calc_structure_fcn(catalog='cohrs_ultimatecatalog3.fits'):
+    cat = Table.read(catalog)
+    sf_offset = Column(np.zeros(len(cat))+np.nan,name='sf_offset')
+    sf_index = Column(np.zeros(len(cat))+np.nan,name='sf_index')
+    cat.add_column(sf_offset)
+    cat.add_column(sf_index)
+    current_open_file = ''
+    for cloud in cat:
+        orig_file = cloud['orig_file']+'.fits'
+        asgn_file = cloud['orig_file']+'_fasgn.fits'
+        if os.path.isfile(datadir+'COHRS/'+orig_file):
+            if current_open_file != datadir+'COHRS/'+orig_file:
+                co = SpectralCube.read(datadir+'COHRS/'+orig_file)
+                asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
+#                masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
+#                moment = masked_co.moment(0)
+                current_open_file = datadir+'COHRS/'+orig_file
+            print(cloud['_idx'])
+            mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
+            subcube = co.subcube_from_mask(mask)
+            if subcube.shape[0] > 15:
+                nchan = subcube.shape[0]
+                nscale = np.min([nchan/2,10])
+                
+                r, dv = cloudpca.structure_function(subcube,meanCorrection=True,
+                                                    nScales=nscale,noiseScales=nscale/2)
+                idx = np.isfinite(r) * np.isfinite(dv)
+                p = np.polyfit(np.log10(r[idx])+np.log10(2.91e-5*cloud['distance']),
+                               np.log10(dv[idx]),1)
+                cloud['sf_index']=p[1]
+                cloud['sf_offset'] = p[0]
+            print(cloud['sf_index'],cloud['sf_offset'])
     return(cat)
