@@ -8,7 +8,8 @@ import astropy.wcs as wcs
 import astropy.units as u
 import os, subprocess
 import cloudpca
-
+import skimage.morphology as skm
+from scipy.optimize import least_squares as lsq
 datadir = '/Users/erik/astro/cohrs/'
 outdir = '/Users/erik/astro/cohrs/RESULTS/'
 datadir = '/home/erosolow/fastdata/cohrs/'
@@ -84,18 +85,18 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
                             'montage_output '+
                             'template_header.hdr',shell=True)
 
+def myplane(p,x,y,z):
+    return(p[0]+p[1]*x+p[2]*y+p[3]*x*y-z)
+
 def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
     cat = Table.read(catalog)
     current_open_file = ''
     if 'ir_luminosity' not in cat.keys():
-        IRlum = Column(np.zeros(len(cat))+np.nan,name='ir_luminosity')
-        IRflux = Column(np.zeros(len(cat))+np.nan,name='ir_flux')
-        IRfluxshort = Column(np.zeros(len(cat))+np.nan,name='ir_flux_short')
-        IRlumshort = Column(np.zeros(len(cat))+np.nan,name='ir_lum_short')
-        cat.add_column(IRlum)
-        cat.add_column(IRflux)
-        cat.add_column(IRfluxshort)
-        cat.add_column(IRlumshort)
+        keylist = ['ir_luminosity','ir_flux','ir_flux_short',
+                'ir_lum_short','bg_flux','bg_lum']
+        for thiskey in keylist:
+            c = Column(np.zeros(len(cat))+np.nan,name=thiskey)
+            cat.add_column(c)
 
     for cloud in cat:
         if np.isnan(cloud['ir_luminosity']) or refresh:
@@ -119,12 +120,39 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                 cloud_cube = co.with_mask(mask)
                 cloud_moment = cloud_cube.moment(0)
                 fraction = cloud_moment.value/moment.value
-                # I am sitcking a 6e11 in here as the frequency of 
-                # the 500 microns
-                ir_flux = np.nansum(fraction*irmap)/6e11
+                planemask = fraction > 0
+                rind = (skm.binary_dilation(planemask,selem=skm.disk(6))-\
+                        skm.binary_dilation(planemask,selem=skm.disk(3)))*\
+                    np.isfinite(irmap2)
+                yv,xv = np.where(rind)
+                x0,y0 = np.median(xv),np.median(yv)
+                dataz = np.c_[np.ones(xv.size), 
+                              xv-x0, 
+                              yv-y0]
+                try:
+
+                    lsqcoeffs,_,_,_ = np.linalg.lstsq(dataz,irmap2[rind])
+                    outputs = lsq(myplane,np.r_[lsqcoeffs,0],
+                                 args=(xv-x0,
+                                       yv-y0,
+                                       irmap2[rind]),
+                                 loss = 'soft_l1')
+                    coeffs = outputs.x
+                    yhit,xhit = np.where(planemask)
+                    bg = coeffs[0]+coeffs[1]*(xhit-x0)+\
+                         coeffs[2]*(yhit-y0)+coeffs[3]*(yhit-y0)*(xhit-x0)
+                
+                    # I am sitcking a 6e11 in here as the frequency of 
+                    # the 500 microns
+                    bgavg = np.sum(fraction[yhit,xhit]*bg)/6e11
+                    bglum = bgavg*cloud['distance']**2*\
+                            3.086e18**2*np.pi*4/3.84e33
+                except ValueError:
+                    pass
+
+                ir_flux = np.nansum(fraction*(irmap))/6e11
                 ir_lum = ir_flux * cloud['distance']**2*\
                          3.086e18**2*np.pi*4/3.84e33
-                print(cloud['_idx'],ir_flux,ir_lum)
                 cloud['ir_flux'] = ir_flux
                 cloud['ir_luminosity'] = ir_lum
                 ir_flux2 = np.nansum(fraction*irmap2)/6e11
@@ -132,7 +160,9 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                          3.086e18**2*np.pi*4/3.84e33
                 cloud['ir_flux_short'] = ir_flux2
                 cloud['ir_lum_short'] = ir_lum2
-                print(cloud['_idx'],ir_flux,ir_lum,ir_lum2)
+                cloud['bg_flux'] = bgavg
+                cloud['bg_lum'] = bglum
+                print(cloud['_idx'],ir_flux,ir_lum,ir_lum2,bglum)
     return(cat)
 
 def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
