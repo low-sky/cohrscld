@@ -9,7 +9,8 @@ import astropy.units as u
 import os, subprocess
 datadir = '/Users/erik/astro/cohrs/'
 outdir = '/Users/erik/astro/cohrs/RESULTS/'
-
+datadir = '/home/erosolow/fastdata/cohrs/'
+outdir = '/home/erosolow/fastdata/RESULTS/'
 
 
 def idenfity_overlaps(fitsfiles, search_directory):
