@@ -84,51 +84,56 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
                             'montage_output '+
                             'template_header.hdr',shell=True)
 
-def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits'):
+def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
     cat = Table.read(catalog)
-    IRlum = Column(np.zeros(len(cat))+np.nan,name='ir_luminosity')
-    IRflux = Column(np.zeros(len(cat))+np.nan,name='ir_flux')
-    cat.add_column(IRlum)
-    cat.add_column(IRflux)
     current_open_file = ''
+    if 'ir_luminosity' not in cat.keys():
+        IRlum = Column(np.zeros(len(cat))+np.nan,name='ir_luminosity')
+        IRflux = Column(np.zeros(len(cat))+np.nan,name='ir_flux')
+        cat.add_column(IRlum)
+        cat.add_column(IRflux)
+
     for cloud in cat:
-        orig_file = cloud['orig_file']+'.fits'
-        asgn_file = cloud['orig_file']+'_fasgn.fits'
-        higal_file = orig_file.replace('cohrs','higal_xmatch')
-
-        if os.path.isfile(datadir+'COHRS/'+orig_file) and \
-                os.path.isfile(datadir+'HIGAL_MATCHED/'+higal_file):
-
-            if current_open_file != datadir+'COHRS/'+orig_file:
-                co = SpectralCube.read(datadir+'COHRS/'+orig_file)
-                irfull= fits.open(datadir+'HIGAL_MATCHED/'+higal_file)
-                irlong = fits.open(datadir+'HIGAL_MATCHED2/'+higal_file)
-                asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
-                masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
-                moment = masked_co.moment(0)
-                current_open_file = datadir+'COHRS/'+orig_file
-                cat.write('output_catalog.fits',overwrite=True)
-            mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
-            cloud_cube = co.with_mask(mask)
-            cloud_moment = cloud_cube.moment(0)
-            fraction = cloud_moment.value/moment.value
-            # I am sitcking a 6e11 in here as the frequency of the 500 microns
-            ir_flux = np.nansum(fraction*(irfull[0].data-irlong[0].data))/6e11
-            ir_lum = ir_flux * cloud['distance']**2*3.086e18**2*np.pi*4/3.84e33
-            print(ir_flux,ir_lum)
-            cloud['ir_flux'] = ir_flux
-            cloud['ir_luminosity'] = ir_lum
+        if np.isnan(cloud['ir_luminosity']) or refresh:
+            orig_file = cloud['orig_file']+'.fits'
+            asgn_file = cloud['orig_file']+'_fasgn.fits'
+            higal_file = orig_file.replace('cohrs','higal_xmatch')
+            if os.path.isfile(datadir+'COHRS/'+orig_file) and \
+                    os.path.isfile(datadir+'HIGAL_MATCHED/'+higal_file):
+                if current_open_file != datadir+'COHRS/'+orig_file:
+                    co = SpectralCube.read(datadir+'COHRS/'+orig_file)
+                    irfull= fits.open(datadir+'HIGAL_MATCHED/'+higal_file)
+                    irlong = fits.open(datadir+'HIGAL_MATCHED2/'+higal_file)
+                    irmap = (irfull[0].data-irlong[0].data)
+                    asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
+                    masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
+                    moment = masked_co.moment(0)
+                    current_open_file = datadir+'COHRS/'+orig_file
+                    cat.write('output_catalog.fits',overwrite=True)
+                mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
+                cloud_cube = co.with_mask(mask)
+                cloud_moment = cloud_cube.moment(0)
+                fraction = cloud_moment.value/moment.value
+                # I am sitcking a 6e11 in here as the frequency of 
+                # the 500 microns
+                ir_flux = np.nansum(fraction*irmap)/6e11
+                ir_lum = ir_flux * cloud['distance']**2*\
+                         3.086e18**2*np.pi*4/3.84e33
+                print(cloud['_idx'],ir_flux,ir_lum)
+                cloud['ir_flux'] = ir_flux
+                cloud['ir_luminosity'] = ir_lum
     return(cat)
 
 def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
     cat = Table.read(catalog)
-    sf_offset = Column(np.zeros(len(cat))+np.nan,name='sf_offset')
-    sf_index = Column(np.zeros(len(cat))+np.nan,name='sf_index')
-    sfgood = Column(np.zeros(len(cat))+np.nan,name='sf_ngood')
-    cat.add_column(sf_offset)
-    cat.add_column(sf_index)
-    cat.add_column(sfgood)
-    current_open_file = ''
+    if 'sf_offset' not in cat.keys():
+        sf_offset = Column(np.zeros(len(cat))+np.nan,name='sf_offset')
+        sf_index = Column(np.zeros(len(cat))+np.nan,name='sf_index')
+        sfgood = Column(np.zeros(len(cat))+np.nan,name='sf_ngood')
+        cat.add_column(sf_offset)
+        cat.add_column(sf_index)
+        cat.add_column(sfgood)
+        current_open_file = ''
     for cloud in cat:
         orig_file = cloud['orig_file']+'.fits'
         asgn_file = cloud['orig_file']+'_fasgn.fits'
@@ -139,6 +144,7 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
 #                masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
 #                moment = masked_co.moment(0)
                 current_open_file = datadir+'COHRS/'+orig_file
+                cat.write('output_catalog2.fits',overwrite=True)
             print(cloud['_idx'])
             mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
             subcube = co.subcube_from_mask(mask)
@@ -146,15 +152,19 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
                 nchan = subcube.shape[0]
                 nscale = np.min([nchan/2,10])
                 
-                r, dv = cloudpca.structure_function(subcube,meanCorrection=True,
-                                                    nScales=nscale,noiseScales=nscale/2)
+                r, dv = cloudpca.structure_function(subcube,
+                                                    meanCorrection=True,
+                                                    nScales=nscale,
+                                                    noiseScales=nscale/2)
                 idx = np.isfinite(r) * np.isfinite(dv)
                 n_good = np.sum(idx)
-                p = np.polyfit(np.log10(r[idx])+np.log10(2.91e-5*cloud['distance']),
+                p = np.polyfit(np.log10(r[idx])+
+                               np.log10(2.91e-5*cloud['distance']),
                                np.log10(dv[idx]),1)
                 if doPlot:
                     plt.clf()
-                    x = np.log10(r[idx])+np.log10(2.91e-5*cloud['distance'])
+                    x = np.log10(r[idx])+\
+                        np.log10(2.91e-5*cloud['distance'])
                     plt.plot(x,np.log10(dv[idx]),'ro')
                     plt.plot(x,p[0]*x+p[1],alpha=0.5)
                     plt.show()
