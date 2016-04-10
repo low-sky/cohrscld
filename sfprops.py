@@ -90,8 +90,12 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
     if 'ir_luminosity' not in cat.keys():
         IRlum = Column(np.zeros(len(cat))+np.nan,name='ir_luminosity')
         IRflux = Column(np.zeros(len(cat))+np.nan,name='ir_flux')
+        IRfluxshort = Column(np.zeros(len(cat))+np.nan,name='ir_flux_short')
+        IRlumshort = Column(np.zeros(len(cat))+np.nan,name='ir_lum_short')
         cat.add_column(IRlum)
         cat.add_column(IRflux)
+        cat.add_column(IRfluxshort)
+        cat.add_column(IRlumshort)
 
     for cloud in cat:
         if np.isnan(cloud['ir_luminosity']) or refresh:
@@ -105,6 +109,7 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                     irfull= fits.open(datadir+'HIGAL_MATCHED/'+higal_file)
                     irlong = fits.open(datadir+'HIGAL_MATCHED2/'+higal_file)
                     irmap = (irfull[0].data-irlong[0].data)
+                    irmap2 = irfull[0].data
                     asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
                     masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
                     moment = masked_co.moment(0)
@@ -122,6 +127,12 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                 print(cloud['_idx'],ir_flux,ir_lum)
                 cloud['ir_flux'] = ir_flux
                 cloud['ir_luminosity'] = ir_lum
+                ir_flux2 = np.nansum(fraction*irmap2)/6e11
+                ir_lum2 = ir_flux2 * cloud['distance']**2*\
+                         3.086e18**2*np.pi*4/3.84e33
+                cloud['ir_flux_short'] = ir_flux2
+                cloud['ir_lum_short'] = ir_lum2
+                print(cloud['_idx'],ir_flux,ir_lum,ir_lum2)
     return(cat)
 
 def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
