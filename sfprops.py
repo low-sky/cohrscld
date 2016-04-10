@@ -122,8 +122,10 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog3.fits'):
     cat = Table.read(catalog)
     sf_offset = Column(np.zeros(len(cat))+np.nan,name='sf_offset')
     sf_index = Column(np.zeros(len(cat))+np.nan,name='sf_index')
+    sfgood = Column(np.zeros(len(cat))+np.nan,name='sf_ngood')
     cat.add_column(sf_offset)
     cat.add_column(sf_index)
+    cat.add_column(sfgood)
     current_open_file = ''
     for cloud in cat:
         orig_file = cloud['orig_file']+'.fits'
@@ -145,9 +147,17 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog3.fits'):
                 r, dv = cloudpca.structure_function(subcube,meanCorrection=True,
                                                     nScales=nscale,noiseScales=nscale/2)
                 idx = np.isfinite(r) * np.isfinite(dv)
+                n_good = np.sum(idx)
                 p = np.polyfit(np.log10(r[idx])+np.log10(2.91e-5*cloud['distance']),
                                np.log10(dv[idx]),1)
-                cloud['sf_index']=p[1]
-                cloud['sf_offset'] = p[0]
+                if doPlot:
+                    plt.clf()
+                    x = np.log10(r[idx])+np.log10(2.91e-5*cloud['distance'])
+                    plt.plot(x,np.log10(dv[idx]),'ro')
+                    plt.plot(x,p[0]*x+p[1],alpha=0.5)
+                    plt.show()
+                cloud['sf_index']= p[0]
+                cloud['sf_offset'] = p[1]
+                cloud['sf_ngood'] = n_good
             print(cloud['sf_index'],cloud['sf_offset'])
     return(cat)
