@@ -7,6 +7,8 @@ import astropy.io.fits as fits
 import astropy.wcs as wcs
 import astropy.units as u
 import os, subprocess
+import cloudpca
+
 datadir = '/Users/erik/astro/cohrs/'
 outdir = '/Users/erik/astro/cohrs/RESULTS/'
 datadir = '/home/erosolow/fastdata/cohrs/'
@@ -82,7 +84,7 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
                             'montage_output '+
                             'template_header.hdr',shell=True)
 
-def calc_irlum(catalog = 'cohrs_ultimatecatalog3.fits'):
+def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits'):
     cat = Table.read(catalog)
     IRlum = Column(np.zeros(len(cat))+np.nan,name='ir_luminosity')
     IRflux = Column(np.zeros(len(cat))+np.nan,name='ir_flux')
@@ -105,6 +107,7 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog3.fits'):
                 masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
                 moment = masked_co.moment(0)
                 current_open_file = datadir+'COHRS/'+orig_file
+                cat.write('output_catalog.fits',overwrite=True)
             mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
             cloud_cube = co.with_mask(mask)
             cloud_moment = cloud_cube.moment(0)
@@ -115,4 +118,48 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog3.fits'):
             print(ir_flux,ir_lum)
             cloud['ir_flux'] = ir_flux
             cloud['ir_luminosity'] = ir_lum
+    return(cat)
+
+def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
+    cat = Table.read(catalog)
+    sf_offset = Column(np.zeros(len(cat))+np.nan,name='sf_offset')
+    sf_index = Column(np.zeros(len(cat))+np.nan,name='sf_index')
+    sfgood = Column(np.zeros(len(cat))+np.nan,name='sf_ngood')
+    cat.add_column(sf_offset)
+    cat.add_column(sf_index)
+    cat.add_column(sfgood)
+    current_open_file = ''
+    for cloud in cat:
+        orig_file = cloud['orig_file']+'.fits'
+        asgn_file = cloud['orig_file']+'_fasgn.fits'
+        if os.path.isfile(datadir+'COHRS/'+orig_file):
+            if current_open_file != datadir+'COHRS/'+orig_file:
+                co = SpectralCube.read(datadir+'COHRS/'+orig_file)
+                asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
+#                masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
+#                moment = masked_co.moment(0)
+                current_open_file = datadir+'COHRS/'+orig_file
+            print(cloud['_idx'])
+            mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
+            subcube = co.subcube_from_mask(mask)
+            if subcube.shape[0] > 15:
+                nchan = subcube.shape[0]
+                nscale = np.min([nchan/2,10])
+                
+                r, dv = cloudpca.structure_function(subcube,meanCorrection=True,
+                                                    nScales=nscale,noiseScales=nscale/2)
+                idx = np.isfinite(r) * np.isfinite(dv)
+                n_good = np.sum(idx)
+                p = np.polyfit(np.log10(r[idx])+np.log10(2.91e-5*cloud['distance']),
+                               np.log10(dv[idx]),1)
+                if doPlot:
+                    plt.clf()
+                    x = np.log10(r[idx])+np.log10(2.91e-5*cloud['distance'])
+                    plt.plot(x,np.log10(dv[idx]),'ro')
+                    plt.plot(x,p[0]*x+p[1],alpha=0.5)
+                    plt.show()
+                cloud['sf_index']= p[0]
+                cloud['sf_offset'] = p[1]
+                cloud['sf_ngood'] = n_good
+            print(cloud['sf_index'],cloud['sf_offset'])
     return(cat)
