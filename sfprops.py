@@ -88,6 +88,9 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
 def myplane(p,x,y,z):
     return(p[0]+p[1]*x+p[2]*y+p[3]*x*y-z)
 
+def myline(p,x,y):
+    return(p[0]*x+p[1]-y)
+
 def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
     cat = Table.read(catalog)
     current_open_file = ''
@@ -124,6 +127,10 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                 rind = (skm.binary_dilation(planemask,selem=skm.disk(6))-\
                         skm.binary_dilation(planemask,selem=skm.disk(3)))*\
                     np.isfinite(irmap2)
+                rindvals = irmap2[rind]
+                clipval = 4*np.percentile(rindvals,15.87)-\
+                          3*(np.percentile(rindvals,2.28))
+                rind *= irmap2 <= clipval
                 yv,xv = np.where(rind)
                 x0,y0 = np.median(xv),np.median(yv)
                 dataz = np.c_[np.ones(xv.size), 
@@ -141,7 +148,7 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                     yhit,xhit = np.where(planemask)
                     bg = coeffs[0]+coeffs[1]*(xhit-x0)+\
                          coeffs[2]*(yhit-y0)+coeffs[3]*(yhit-y0)*(xhit-x0)
-                
+
                     # I am sitcking a 6e11 in here as the frequency of 
                     # the 500 microns
                     bgavg = np.sum(fraction[yhit,xhit]*bg)/6e11
@@ -153,27 +160,27 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                 ir_flux = np.nansum(fraction*(irmap))/6e11
                 ir_lum = ir_flux * cloud['distance']**2*\
                          3.086e18**2*np.pi*4/3.84e33
-                cloud['ir_flux'] = ir_flux
-                cloud['ir_luminosity'] = ir_lum
                 ir_flux2 = np.nansum(fraction*irmap2)/6e11
                 ir_lum2 = ir_flux2 * cloud['distance']**2*\
                          3.086e18**2*np.pi*4/3.84e33
-                cloud['ir_flux_short'] = ir_flux2
-                cloud['ir_lum_short'] = ir_lum2
+                cloud['ir_flux'] = ir_flux2
+                cloud['ir_luminosity'] = ir_lum2
+                cloud['ir_flux_short'] = ir_flux
+                cloud['ir_lum_short'] = ir_lum
                 cloud['bg_flux'] = bgavg
                 cloud['bg_lum'] = bglum
                 print(cloud['_idx'],ir_flux,ir_lum,ir_lum2,bglum)
     return(cat)
 
-def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
+def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=False):
     cat = Table.read(catalog)
     if 'sf_offset' not in cat.keys():
-        sf_offset = Column(np.zeros(len(cat))+np.nan,name='sf_offset')
-        sf_index = Column(np.zeros(len(cat))+np.nan,name='sf_index')
-        sfgood = Column(np.zeros(len(cat))+np.nan,name='sf_ngood')
-        cat.add_column(sf_offset)
-        cat.add_column(sf_index)
-        cat.add_column(sfgood)
+        keylist = ['sf_offset','sf_index','sf_ngood',
+                   'sf_index_err','sf_offset_err']
+        for thiskey in keylist:
+            c = Column(np.zeros(len(cat))+np.nan,name=thiskey)
+            cat.add_column(c)
+        
         current_open_file = ''
     for cloud in cat:
         orig_file = cloud['orig_file']+'.fits'
@@ -199,18 +206,47 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits'):
                                                     noiseScales=nscale/2)
                 idx = np.isfinite(r) * np.isfinite(dv)
                 n_good = np.sum(idx)
-                p = np.polyfit(np.log10(r[idx])+
-                               np.log10(2.91e-5*cloud['distance']),
-                               np.log10(dv[idx]),1)
-                if doPlot:
-                    plt.clf()
-                    x = np.log10(r[idx])+\
-                        np.log10(2.91e-5*cloud['distance'])
-                    plt.plot(x,np.log10(dv[idx]),'ro')
-                    plt.plot(x,p[0]*x+p[1],alpha=0.5)
-                    plt.show()
-                cloud['sf_index']= p[0]
-                cloud['sf_offset'] = p[1]
-                cloud['sf_ngood'] = n_good
-            print(cloud['sf_index'],cloud['sf_offset'])
+                if n_good >3:
+                    p = np.polyfit(np.log10(r[idx])+
+                                   np.log10(2.91e-5*cloud['distance']),
+                                   np.log10(dv[idx]),1)
+
+                    probust = lsq(myline,p,
+                                  args=(np.log10(r[idx])+
+                                        np.log10(2.91e-5*cloud['distance']),
+                                        np.log10(dv[idx])),
+                                  loss = 'soft_l1')
+                    pboot = np.zeros((2,bootiter))
+                    if bootiter>0:
+                        indices= (np.where(idx))[0]
+                        length = len(indices)
+                        for ctr in np.arange(bootiter):
+                            bootidx = np.random.choice(indices,length,True)
+                            pboot[:,ctr] = np.polyfit(np.log10(r[bootidx])+
+                                                      np.log10(2.91e-5*
+                                                               cloud['distance']),
+                                                      np.log10(dv[bootidx]),1)
+                            
+
+                        cloud['sf_index_err']=0.5*(\
+                                               np.percentile(pboot[0,:],84.13)-\
+                                               np.percentile(pboot[0,:],15.87))
+                        cloud['sf_offset_err']=0.5*(\
+                                               np.percentile(pboot[1,:],84.13)-\
+                                               np.percentile(pboot[1,:],15.87))
+                    if doPlot:
+                        plt.clf()
+                        x = np.log10(r[idx])+\
+                            np.log10(2.91e-5*cloud['distance'])
+                        plt.plot(x,np.log10(dv[idx]),'ro')
+                        plt.plot(x,p[0]*x+p[1],alpha=0.5)
+                        plt.plot(x,probust.x[0]*x+probust.x[1],
+                                 alpha=0.5,linestyle='--')
+                        plt.show()
+                    cloud['sf_index']= probust.x[0]
+                    cloud['sf_offset'] = probust.x[1]
+                    cloud['sf_ngood'] = n_good
+                print('{0} +/- {1}'.format(cloud['sf_index'],
+                                           cloud['sf_index_err']),
+                      cloud['sf_offset'])
     return(cat)
