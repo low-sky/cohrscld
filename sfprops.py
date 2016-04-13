@@ -122,54 +122,60 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
                 mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
                 cloud_cube = co.with_mask(mask)
                 cloud_moment = cloud_cube.moment(0)
-                fraction = cloud_moment.value/moment.value
-                planemask = fraction > 0
+                fraction = (cloud_moment.value/moment.value)
+                planemask = skm.binary_closing(fraction > 0,selem=skm.disk(3))
+                fraction = np.nanmean(fraction)
                 rind = (skm.binary_dilation(planemask,selem=skm.disk(6))-\
                         skm.binary_dilation(planemask,selem=skm.disk(3)))*\
                     np.isfinite(irmap2)
-                rindvals = irmap2[rind]
-                clipval = 4*np.percentile(rindvals,15.87)-\
-                          3*(np.percentile(rindvals,2.28))
-                rind *= irmap2 <= clipval
-                yv,xv = np.where(rind)
-                x0,y0 = np.median(xv),np.median(yv)
-                dataz = np.c_[np.ones(xv.size), 
-                              xv-x0, 
-                              yv-y0]
-                try:
+                if np.any(rind):
+                    rindvals = irmap2[rind]
+                    clipval = 4*np.percentile(rindvals,15.87)-\
+                              3*(np.percentile(rindvals,2.28))
+                    rind *= irmap2 <= clipval
+                    yv,xv = np.where(rind)
+                    x0,y0 = np.median(xv),np.median(yv)
+                    dataz = np.c_[np.ones(xv.size), 
+                                  xv-x0, 
+                                  yv-y0]
+                    try:
 
-                    lsqcoeffs,_,_,_ = np.linalg.lstsq(dataz,irmap2[rind])
-                    outputs = lsq(myplane,np.r_[lsqcoeffs,0],
-                                 args=(xv-x0,
-                                       yv-y0,
-                                       irmap2[rind]),
-                                 loss = 'soft_l1')
-                    coeffs = outputs.x
-                    yhit,xhit = np.where(planemask)
-                    bg = coeffs[0]+coeffs[1]*(xhit-x0)+\
-                         coeffs[2]*(yhit-y0)+coeffs[3]*(yhit-y0)*(xhit-x0)
+                        lsqcoeffs,_,_,_ = np.linalg.lstsq(dataz,irmap2[rind])
+                        outputs = lsq(myplane,np.r_[lsqcoeffs,0],
+                                     args=(xv-x0,
+                                           yv-y0,
+                                           irmap2[rind]),
+                                     loss = 'soft_l1')
+                        coeffs = outputs.x
+                        yhit,xhit = np.where(planemask)
+                        bg = coeffs[0]+coeffs[1]*(xhit-x0)+\
+                             coeffs[2]*(yhit-y0)+coeffs[3]*(yhit-y0)*(xhit-x0)
 
-                    # I am sitcking a 6e11 in here as the frequency of 
-                    # the 500 microns
-                    bgavg = np.sum(fraction[yhit,xhit]*bg)/6e11
-                    bglum = bgavg*cloud['distance']**2*\
-                            3.086e18**2*np.pi*4/3.84e33
-                except ValueError:
-                    pass
+                        # I am sitcking a 6e11 in here as the frequency of 
+                        # the 500 microns
+                        bgavg = np.sum(fraction*bg)/6e11
+                        bglum = bgavg*cloud['distance']**2*\
+                                3.086e18**2*np.pi*4/3.84e33
 
-                ir_flux = np.nansum(fraction*(irmap))/6e11
-                ir_lum = ir_flux * cloud['distance']**2*\
-                         3.086e18**2*np.pi*4/3.84e33
-                ir_flux2 = np.nansum(fraction*irmap2)/6e11
-                ir_lum2 = ir_flux2 * cloud['distance']**2*\
-                         3.086e18**2*np.pi*4/3.84e33
-                cloud['ir_flux'] = ir_flux2
-                cloud['ir_luminosity'] = ir_lum2
-                cloud['ir_flux_short'] = ir_flux
-                cloud['ir_lum_short'] = ir_lum
-                cloud['bg_flux'] = bgavg
-                cloud['bg_lum'] = bglum
-                print(cloud['_idx'],ir_flux,ir_lum,ir_lum2,bglum)
+                    except ValueError:
+                        pass
+
+                    ir_flux = np.nansum(fraction*(irmap[planemask]))/6e11
+                    ir_lum = ir_flux * cloud['distance']**2*\
+                             3.086e18**2*np.pi*4/3.84e33
+                    ir_flux2 = np.nansum(fraction*irmap2[planemask])/6e11
+                    ir_lum2 = ir_flux2 * cloud['distance']**2*\
+                             3.086e18**2*np.pi*4/3.84e33
+                    cloud['ir_flux'] = ir_flux2
+                    cloud['ir_luminosity'] = ir_lum2
+                    cloud['ir_flux_short'] = ir_flux
+                    cloud['ir_lum_short'] = ir_lum
+                    cloud['bg_flux'] = bgavg
+                    cloud['bg_lum'] = bglum
+                    print(cloud['_idx'],ir_flux,ir_lum,ir_lum2,bglum)
+    #                if cloud['volume_pc2_kms']>1e2:
+    #                    import pdb; pdb.set_trace()
+
     return(cat)
 
 def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=False):
@@ -196,57 +202,55 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=
             print(cloud['_idx'])
             mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
             subcube = co.subcube_from_mask(mask)
-            if subcube.shape[0] > 15:
-                nchan = subcube.shape[0]
-                nscale = np.min([nchan/2,10])
-                
-                r, dv = cloudpca.structure_function(subcube,
-                                                    meanCorrection=True,
-                                                    nScales=nscale,
-                                                    noiseScales=nscale/2)
-                idx = np.isfinite(r) * np.isfinite(dv)
-                n_good = np.sum(idx)
-                if n_good >3:
-                    p = np.polyfit(np.log10(r[idx])+
-                                   np.log10(2.91e-5*cloud['distance']),
-                                   np.log10(dv[idx]),1)
+            try:
+                if subcube.shape[0] > 15:
+                    nchan = subcube.shape[0]
+                    nscale = np.min([nchan/2,10])
 
-                    probust = lsq(myline,p,
-                                  args=(np.log10(r[idx])+
-                                        np.log10(2.91e-5*cloud['distance']),
-                                        np.log10(dv[idx])),
-                                  loss = 'soft_l1')
-                    pboot = np.zeros((2,bootiter))
-                    if bootiter>0:
-                        indices= (np.where(idx))[0]
-                        length = len(indices)
-                        for ctr in np.arange(bootiter):
-                            bootidx = np.random.choice(indices,length,True)
-                            pboot[:,ctr] = np.polyfit(np.log10(r[bootidx])+
-                                                      np.log10(2.91e-5*
-                                                               cloud['distance']),
-                                                      np.log10(dv[bootidx]),1)
-                            
+                    r, dv = cloudpca.structure_function(subcube,
+                                                        meanCorrection=True,
+                                                        nScales=nscale,
+                                                        noiseScales=nscale/2)
+                    idx = np.isfinite(r) * np.isfinite(dv)
+                    n_good = np.sum(idx)
+                    if n_good >3:
+                        p = np.polyfit(np.log10(r[idx])+
+                                       np.log10(2.91e-5*cloud['distance']),
+                                       np.log10(dv[idx]),1)
 
-                        cloud['sf_index_err']=0.5*(\
-                                               np.percentile(pboot[0,:],84.13)-\
-                                               np.percentile(pboot[0,:],15.87))
-                        cloud['sf_offset_err']=0.5*(\
-                                               np.percentile(pboot[1,:],84.13)-\
-                                               np.percentile(pboot[1,:],15.87))
-                    if doPlot:
-                        plt.clf()
-                        x = np.log10(r[idx])+\
-                            np.log10(2.91e-5*cloud['distance'])
-                        plt.plot(x,np.log10(dv[idx]),'ro')
-                        plt.plot(x,p[0]*x+p[1],alpha=0.5)
-                        plt.plot(x,probust.x[0]*x+probust.x[1],
-                                 alpha=0.5,linestyle='--')
-                        plt.show()
-                    cloud['sf_index']= probust.x[0]
-                    cloud['sf_offset'] = probust.x[1]
-                    cloud['sf_ngood'] = n_good
-                print('{0} +/- {1}'.format(cloud['sf_index'],
-                                           cloud['sf_index_err']),
-                      cloud['sf_offset'])
+                        pboot = np.zeros((2,bootiter))
+                        if bootiter>0:
+                            indices= (np.where(idx))[0]
+                            length = len(indices)
+                            for ctr in np.arange(bootiter):
+                                bootidx = np.random.choice(indices,length,True)
+                                pboot[:,ctr] = np.polyfit(np.log10(r[bootidx])+
+                                                          np.log10(2.91e-5*
+                                                                   cloud['distance']),
+                                                          np.log10(dv[bootidx]),1)
+
+
+                            cloud['sf_index_err']=0.5*(\
+                                                   np.percentile(pboot[0,:],84.13)-\
+                                                   np.percentile(pboot[0,:],15.87))
+                            cloud['sf_offset_err']=0.5*(\
+                                                   np.percentile(pboot[1,:],84.13)-\
+                                                   np.percentile(pboot[1,:],15.87))
+                        if doPlot:
+                            plt.clf()
+                            x = np.log10(r[idx])+\
+                                np.log10(2.91e-5*cloud['distance'])
+                            plt.plot(x,np.log10(dv[idx]),'ro')
+                            plt.plot(x,p[0]*x+p[1],alpha=0.5)
+                            plt.plot(x,probust.x[0]*x+probust.x[1],
+                                     alpha=0.5,linestyle='--')
+                            plt.show()
+                        cloud['sf_index']= p[0]
+                        cloud['sf_offset'] = p[1]
+                        cloud['sf_ngood'] = n_good
+                    print('{0} +/- {1}'.format(cloud['sf_index'],
+                                               cloud['sf_index_err']),
+                          cloud['sf_offset'])
+            except:
+                pass
     return(cat)
