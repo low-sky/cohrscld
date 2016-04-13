@@ -88,7 +88,7 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
 def myplane(p,x,y,z):
     return(p[0]+p[1]*x+p[2]*y+p[3]*x*y-z)
 
-def calc_irlum(catalog = 'cohrs_ultimatecatalog4p.fits', refresh=False):
+def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
     cat = Table.read(catalog)
     current_open_file = ''
     if 'ir_luminosity' not in cat.keys():
