@@ -3,10 +3,11 @@ import seaborn as sns
 from astropy.table import Table, join
 import scipy.stats as ss
 import matplotlib.pyplot as plt
-t1=Table.read('output_catalog.fits')
-t2 = Table.read('output_catalog2.fits')
-t = t1
+#t1=Table.read('output_catalog.fits')
+#t2 = Table.read('output_catalog2.fits')
+#t = t1
 
+t = Table.read('output_catalog_withsfr.fits')
 
 mlum = t['flux']*t['distance']**2/109949271.0*2.5
 order1 = np.argsort(mlum)

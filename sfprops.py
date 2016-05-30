@@ -10,6 +10,7 @@ import os, subprocess
 import cloudpca
 import skimage.morphology as skm
 from scipy.optimize import least_squares as lsq
+from memory_profiler import profile
 datadir = '/Users/erik/astro/cohrs/'
 outdir = '/Users/erik/astro/cohrs/RESULTS/'
 datadir = '/home/erosolow/fastdata/cohrs/'
@@ -72,7 +73,7 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
             os.mkdir('montagetmp')
             for thisfile in matching:
                 os.symlink(datadir+'/HIGAL/'+thisfile,'montagetmp/'+thisfile)
-            s = SpectralCube.read(datadir+'COHRS/'+cofile)
+            s = SpectralCube.read(datadir+'COHRS/'+cofile,memmap=False)
             thisslice = s[0,:,:]
             thisslice.write('tmp.fits')
             hdr = fits.getheader('tmp.fits')
@@ -91,7 +92,9 @@ def myplane(p,x,y,z):
 def myline(p,x,y):
     return(p[0]*x+p[1]-y)
 
+@profile
 def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
+    ctrr = 0
     cat = Table.read(catalog)
     current_open_file = ''
     if 'ir_luminosity' not in cat.keys():
@@ -109,19 +112,22 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
             if os.path.isfile(datadir+'COHRS/'+orig_file) and \
                     os.path.isfile(datadir+'HIGAL_MATCHED/'+higal_file):
                 if current_open_file != datadir+'COHRS/'+orig_file:
-                    co = SpectralCube.read(datadir+'COHRS/'+orig_file)
-                    irfull= fits.open(datadir+'HIGAL_MATCHED/'+higal_file)
-                    irlong = fits.open(datadir+'HIGAL_MATCHED2/'+higal_file)
+                    co = SpectralCube.read(datadir+'COHRS/'+orig_file,
+                                           memmap=False)
+                    irfull= fits.open(datadir+'HIGAL_MATCHED/'+higal_file,memmap=False)
+                    irlong = fits.open(datadir+'HIGAL_MATCHED2/'+higal_file,memmap=False)
                     irmap = (irfull[0].data-irlong[0].data)
                     irmap2 = irfull[0].data
-                    asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
+                    asgn = fits.getdata(datadir+'ASSIGNMENTS/'+asgn_file,memmap=False)
                     masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
                     moment = masked_co.moment(0)
                     current_open_file = datadir+'COHRS/'+orig_file
                     cat.write('output_catalog.fits',overwrite=True)
-                mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
-                cloud_cube = co.with_mask(mask)
+#                mask = np.zeros(co.shape,dtype=np.bool)
+#                mask[asgn == cloud['_idx']]=True
+                cloud_cube = co.with_mask(asgn == cloud['_idx'])
                 cloud_moment = cloud_cube.moment(0)
+                cloud_cube = 0.0
                 fraction = (cloud_moment.value/moment.value)
                 planemask = skm.binary_closing(fraction > 0,selem=skm.disk(3))
                 fraction = np.nanmean(fraction)
@@ -173,9 +179,13 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
                     cloud['bg_flux'] = bgavg
                     cloud['bg_lum'] = bglum
                     print(cloud['_idx'],ir_flux,ir_lum,ir_lum2,bglum)
+                    cat.write('output_catalog.fits',overwrite=True)
+                    ctrr+=1
+                    if ctrr==20:
+                        return(cat)
     #                if cloud['volume_pc2_kms']>1e2:
     #                    import pdb; pdb.set_trace()
-
+    
     return(cat)
 
 def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=False):
@@ -193,8 +203,8 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=
         asgn_file = cloud['orig_file']+'_fasgn.fits'
         if os.path.isfile(datadir+'COHRS/'+orig_file):
             if current_open_file != datadir+'COHRS/'+orig_file:
-                co = SpectralCube.read(datadir+'COHRS/'+orig_file)
-                asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file)
+                co = SpectralCube.read(datadir+'COHRS/'+orig_file,memmap=False)
+                asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file,memmap=False)
 #                masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
 #                moment = masked_co.moment(0)
                 current_open_file = datadir+'COHRS/'+orig_file
