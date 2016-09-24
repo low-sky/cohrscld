@@ -7,12 +7,14 @@ import astropy.io.fits as fits
 import astropy.wcs as wcs
 import astropy.units as u
 import os, subprocess
-import cloudpca
+from turbustat.statistics import pca
 import skimage.morphology as skm
 from scipy.optimize import least_squares as lsq
 from memory_profiler import profile
-datadir = '/Users/erik/astro/cohrs/'
-outdir = '/Users/erik/astro/cohrs/RESULTS/'
+from radio_beam import Beam
+#datadir = '/Users/erik/astro/cohrs/'
+#outdir = '/Users/erik/astro/cohrs/RESULTS/'
+
 datadir = '/home/erosolow/fastdata/cohrs/'
 outdir = '/home/erosolow/fastdata/RESULTS/'
 
@@ -73,7 +75,13 @@ def match_higal_to_cohrs(output='HIGAL_MATCHED',search='70to500'):
             os.mkdir('montagetmp')
             for thisfile in matching:
                 os.symlink(datadir+'/HIGAL/'+thisfile,'montagetmp/'+thisfile)
-            s = SpectralCube.read(datadir+'COHRS/'+cofile,memmap=False)
+            hdu = fits.open(datadir+'COHRS/'+cofile,memmap=False)
+            w = wcs.WCS(hdu[0].header)
+            hdr2 = w.to_header()
+            hdr2['BMAJ'] = 15./3600
+            hdr2['BMIN'] = 15./3600
+            hdr2['BPA'] = 0.
+            s = SpectralCube(hdu[0].data,w,header=hdr2)
             thisslice = s[0,:,:]
             thisslice.write('tmp.fits')
             hdr = fits.getheader('tmp.fits')
@@ -93,7 +101,7 @@ def myline(p,x,y):
     return(p[0]*x+p[1]-y)
 
 @profile
-def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
+def calc_irlum(catalog = 'cohrs_ultimatecatalog3.fits', refresh=False):
     ctrr = 0
     cat = Table.read(catalog)
     current_open_file = ''
@@ -112,8 +120,13 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
             if os.path.isfile(datadir+'COHRS/'+orig_file) and \
                     os.path.isfile(datadir+'HIGAL_MATCHED/'+higal_file):
                 if current_open_file != datadir+'COHRS/'+orig_file:
-                    co = SpectralCube.read(datadir+'COHRS/'+orig_file,
-                                           memmap=False)
+                    hdu = fits.open(datadir+'COHRS/'+orig_file,memmap=False)
+                    w = wcs.WCS(hdu[0].header)
+                    hdr2 = w.to_header()
+                    hdr2['BMAJ'] = 15./3600
+                    hdr2['BMIN'] = 15./3600
+                    hdr2['BPA'] = 0.
+                    co = SpectralCube(hdu[0].data,w,header=hdr2)
                     irfull= fits.open(datadir+'HIGAL_MATCHED/'+higal_file,memmap=False)
                     irlong = fits.open(datadir+'HIGAL_MATCHED2/'+higal_file,memmap=False)
                     irmap = (irfull[0].data-irlong[0].data)
@@ -188,7 +201,7 @@ def calc_irlum(catalog = 'cohrs_ultimatecatalog5.fits', refresh=False):
     
     return(cat)
 
-def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=False):
+def calc_structure_fcn(catalog='cohrs_ultimatecatalog3.fits',bootiter=0,doPlot=False):
     cat = Table.read(catalog)
     if 'sf_offset' not in cat.keys():
         keylist = ['sf_offset','sf_index','sf_ngood',
@@ -197,70 +210,102 @@ def calc_structure_fcn(catalog='cohrs_ultimatecatalog4p.fits',bootiter=0,doPlot=
             c = Column(np.zeros(len(cat))+np.nan,name=thiskey)
             cat.add_column(c)
         
-        current_open_file = ''
+    current_open_file = ''
     for cloud in cat:
         orig_file = cloud['orig_file']+'.fits'
         asgn_file = cloud['orig_file']+'_fasgn.fits'
         if os.path.isfile(datadir+'COHRS/'+orig_file):
             if current_open_file != datadir+'COHRS/'+orig_file:
-                co = SpectralCube.read(datadir+'COHRS/'+orig_file,memmap=False)
-                asgn = SpectralCube.read(datadir+'ASSIGNMENTS/'+asgn_file,memmap=False)
+                hdu = fits.open(datadir+'COHRS/'+orig_file,memmap=False)
+                cat.write('cohrs_structurefunc.fits',overwrite=True)
+                w = wcs.WCS(hdu[0].header)
+                hdr2 = w.to_header()
+                hdr2['BMAJ'] = 15./3600
+                hdr2['BMIN'] = 15./3600
+                hdr2['BPA'] = 0.
+                co = SpectralCube(hdu[0].data,w,header=hdr2)
+                hdu = fits.open(datadir+'ASSIGNMENTS/'+asgn_file,memmap=False)
+                w = wcs.WCS(hdu[0].header)
+                hdr2 = w.to_header()
+                hdr2['BMAJ'] = 15./3600
+                hdr2['BMIN'] = 15./3600
+                hdr2['BPA'] = 0.
+                asgn = SpectralCube(hdu[0].data,w,header=hdr2)
+
 #                masked_co = co.with_mask(asgn>0*u.dimensionless_unscaled)
 #                moment = masked_co.moment(0)
                 current_open_file = datadir+'COHRS/'+orig_file
                 cat.write('output_catalog2.fits',overwrite=True)
             print(cloud['_idx'])
             mask = (asgn == cloud['_idx']*u.dimensionless_unscaled)
+            
             subcube = co.subcube_from_mask(mask)
-            try:
-                if subcube.shape[0] > 15:
-                    nchan = subcube.shape[0]
-                    nscale = np.min([nchan/2,10])
+            
+            if subcube.shape[0] > 15:
+                # zeros = np.zeros_like(subcube) # np.random.randn(*subcube.shape)*0.5
+                # concatdata = np.vstack([subcube.filled_data[:],zeros])
+                # hdr2 = subcube.wcs.to_header()
+                # hdr2['BMAJ'] = 15./3600
+                # hdr2['BMIN'] = 15./3600
+                # hdr2['BPA'] = 0.
+                # newcube = SpectralCube(concatdata,subcube.wcs,header=hdr2)
+                pcaobj = pca.PCA(subcube,distance=cloud['distance']*u.pc)
 
-                    r, dv = cloudpca.structure_function(subcube,
-                                                        meanCorrection=True,
-                                                        nScales=nscale,
-                                                        noiseScales=nscale/2)
-                    idx = np.isfinite(r) * np.isfinite(dv)
-                    n_good = np.sum(idx)
-                    if n_good >3:
-                        p = np.polyfit(np.log10(r[idx])+
-                                       np.log10(2.91e-5*cloud['distance']),
-                                       np.log10(dv[idx]),1)
+                try:
+                    pcaobj.run(min_eigval=0.25,verbose=False,mean_sub=True)
+                    cloud['sf_index']= pcaobj.index
+                    cloud['sf_offset'] = pcaobj.intercept.value
+                    cloud['sf_ngood'] = np.min([np.isfinite(pcaobj.spatial_width).sum(),
+                                                np.isfinite(pcaobj.spectral_width).sum()])
 
-                        pboot = np.zeros((2,bootiter))
-                        if bootiter>0:
-                            indices= (np.where(idx))[0]
-                            length = len(indices)
-                            for ctr in np.arange(bootiter):
-                                bootidx = np.random.choice(indices,length,True)
-                                pboot[:,ctr] = np.polyfit(np.log10(r[bootidx])+
-                                                          np.log10(2.91e-5*
-                                                                   cloud['distance']),
-                                                          np.log10(dv[bootidx]),1)
+                    cloud['sf_index_err'] = (pcaobj.index_error_range[1]-pcaobj.index_error_range[0])*0.5
+                    cloud['sf_offset_err'] = ((pcaobj.intercept_error_range[1]-pcaobj.intercept_error_range[0])*0.5).value
 
-
-                            cloud['sf_index_err']=0.5*(\
-                                                   np.percentile(pboot[0,:],84.13)-\
-                                                   np.percentile(pboot[0,:],15.87))
-                            cloud['sf_offset_err']=0.5*(\
-                                                   np.percentile(pboot[1,:],84.13)-\
-                                                   np.percentile(pboot[1,:],15.87))
-                        if doPlot:
-                            plt.clf()
-                            x = np.log10(r[idx])+\
-                                np.log10(2.91e-5*cloud['distance'])
-                            plt.plot(x,np.log10(dv[idx]),'ro')
-                            plt.plot(x,p[0]*x+p[1],alpha=0.5)
-                            plt.plot(x,probust.x[0]*x+probust.x[1],
-                                     alpha=0.5,linestyle='--')
-                            plt.show()
-                        cloud['sf_index']= p[0]
-                        cloud['sf_offset'] = p[1]
-                        cloud['sf_ngood'] = n_good
                     print('{0} +/- {1}'.format(cloud['sf_index'],
                                                cloud['sf_index_err']),
                           cloud['sf_offset'])
-            except:
-                pass
+                except:
+                    pass
+        
+
+                    # r, dv = cloudpca.structure_function(subcube,
+                    #                                     meanCorrection=True,
+                    #                                     nScales=nscale,
+                    #                                     noiseScales=nscale/2)
+                    # idx = np.isfinite(r) * np.isfinite(dv)
+                    # n_good = np.sum(idx)
+                    # if n_good >3:
+                    #     p = np.polyfit(np.log10(r[idx])+
+                    #                    np.log10(2.91e-5*cloud['distance']),
+                    #                    np.log10(dv[idx]),1)
+
+                    #     pboot = np.zeros((2,bootiter))
+                    #     if bootiter>0:
+                    #         indices= (np.where(idx))[0]
+                    #         length = len(indices)
+                    #         for ctr in np.arange(bootiter):
+                    #             bootidx = np.random.choice(indices,length,True)
+                    #             pboot[:,ctr] = np.polyfit(np.log10(r[bootidx])+
+                    #                                       np.log10(2.91e-5*
+                    #                                                cloud['distance']),
+                    #                                       np.log10(dv[bootidx]),1)
+
+
+                        #     cloud['sf_index_err']=0.5*(\
+                        #                            np.percentile(pboot[0,:],84.13)-\
+                        #                            np.percentile(pboot[0,:],15.87))
+                        #     cloud['sf_offset_err']=0.5*(\
+                        #                            np.percentile(pboot[1,:],84.13)-\
+                        #                            np.percentile(pboot[1,:],15.87))
+                        # if doPlot:
+                        #     plt.clf()
+                        #     x = np.log10(r[idx])+\
+                        #         np.log10(2.91e-5*cloud['distance'])
+                        #     plt.plot(x,np.log10(dv[idx]),'ro')
+                        #     plt.plot(x,p[0]*x+p[1],alpha=0.5)
+                        #     plt.plot(x,probust.x[0]*x+probust.x[1],
+                        #              alpha=0.5,linestyle='--')
+                        #     plt.show()
+#            except:
+#                pass
     return(cat)
