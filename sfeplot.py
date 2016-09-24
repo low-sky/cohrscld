@@ -37,6 +37,7 @@ fig, (ax1) = plt.subplots(1)
 fig.set_size_inches(5,4)
 idx = mlum>1e2
 val,edges,_ = ss.binned_statistic(np.log10(mlum[idx]),np.log10(sfe[idx]),statistic=np.nanmedian,bins=10)
+
 histdata,xedge,yedge = np.histogram2d(np.log10(mlum[idx]),np.log10(sfe[idx]),
                                       range=[[2,6],[-2,2]],bins=40)
 #sns.heatmap(histdata.T,mask=histdata.T<1,ax=ax1)
