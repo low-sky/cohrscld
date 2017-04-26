@@ -32,7 +32,7 @@ rgal = (R0**2+t['distance']**2-2*R0*t['distance']*np.cos(t['x_coor']*np.pi/180))
 # plt.clf()
 
 fig, (ax1) = plt.subplots(1)
-fig.set_size_inches(5,4)
+fig.set_size_inches(3.5,3.3)
 idx = mlum>1e2
 val,edges,_ = ss.binned_statistic(np.log10(mlum[idx]),np.log10(sfe[idx]),statistic=np.nanmedian,bins=10)
 
@@ -48,9 +48,9 @@ ax1.plot(1e1**(0.5*(edges[1:]+edges[0:-1])),1e1**val, color='green', lw=3)
 ax1.set_xscale('log')
 ax1.set_yscale('log')
 
-ax1.set_xlabel(r'$M_{\mathrm{CO}}\ (M_{\odot})$',size=16)
-ax1.set_ylabel(r'$L_{\mathrm{IR}}/M_{\mathrm{CO}}\ (L_{\odot}/M_{\odot})$',
-               size=16)
+ax1.set_xlabel(r'$M_{\mathrm{H_2}}\ (M_{\odot})$',size=12)
+ax1.set_ylabel(r'$L_{\mathrm{IR}}/M_{\mathrm{H_2}}\ (L_{\odot}/M_{\odot})$',
+               size=12)
 ax1.set_xlim([1e2,1e6])
 ax1.set_ylim([1e-2,1e2])
 
@@ -60,9 +60,9 @@ ax1.grid()
 
 cax = ax1.imshow(histdata.T,extent=(1e2,1e6,1e-2,1e2),origin='lower',
                  interpolation='nearest',cmap='inferno',vmin=2)
-cb = fig.colorbar(cax)
-cb.set_label(r'Number')
+#cb = fig.colorbar(cax)
+#cb.set_label(r'Number')
 fig.tight_layout()
-plt.savefig('sfe_gmc.png', dpi=300)
+plt.savefig('sfe_gmc.pdf', dpi=300)
 plt.close(fig)
 plt.clf()
