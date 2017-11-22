@@ -30,7 +30,8 @@ idx = mlum>1e2
 histdata,xax,yax = np.histogram2d(np.log10(sfe[idx]),np.log10(mlum[idx]),bins=[np.linspace(-2,2,21),np.linspace(2,6.5,24)])
 histdata[histdata < 10]=np.nan
 plt.plot(mlum[idx],sfe[idx],'k.',zorder=-99)
-plt.imshow(histdata,extent=[1e2,3e6,1e-2,1e2],interpolation='Nearest',cmap='inferno',aspect='auto',origin='lower',vmin=1)
+plt.imshow(histdata,extent=[1e2,3e6,1e-2,1e2],
+           interpolation='Nearest',cmap='inferno',aspect='auto',origin='lower',vmin=1)
 plt.xscale('log')
 plt.yscale('log')
 # plt.loglog(mlum,sfe,'r.')

@@ -4,7 +4,7 @@ import scipy.stats as ss
 import matplotlib.pyplot as plt
 import astropy.units as u
 import astropy.constants as con
-t = Table.read('/Users/erik/code/cohrscld/output_catalog_withsfr.fits')
+t = Table.read('/mnt/bigdata/erosolow/cohrs_work/output_catalog_withsfr.fits')
 apix_sr = 8.46159e-10
 
 mlum = t['mlum_msun']
