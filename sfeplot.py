@@ -14,6 +14,7 @@ t = Table.read('/Users/erik/code/cohrscld/output_catalog_withsfr.fits')
 #for tag in ('x_coor','y_coor','v_coor'):
 #    t[tag]=t2[tag]
 
+
 apix_sr = 8.46159e-10
 
 mlum = t['mlum_msun']
